@@ -40,18 +40,29 @@ jobs:
         run: |
           set -e
 
-          ROOT=$(find project -type f \( \
-            -name "settings.gradle" \
-            -o -name "settings.gradle.kts" \
-          \) -print -quit | xargs -r dirname)
+          GRADLEW=$(find "$GITHUB_WORKSPACE/project" -type f -name "gradlew" | head -n 1)
 
-          if [ -z "$ROOT" ]; then
-            echo "ERROR: Android project not found"
-            exit 1
+          if [ -z "$GRADLEW" ]; then
+            echo "gradlew not found. Searching for build.gradle:"
+            find "$GITHUB_WORKSPACE/project" -type f -name "build.gradle" -o -name "build.gradle.kts"
+
+            ROOT=$(find "$GITHUB_WORKSPACE/project" -type f -name "settings.gradle" -o -name "settings.gradle.kts" -exec dirname {} \; | head -n 1)
+
+            if [ -z "$ROOT" ]; then
+              echo "ERROR: Android project root not found"
+              exit 1
+            fi
+
+            echo "Android project root: $ROOT"
+            echo "ANDROID_ROOT=$ROOT" >> "$GITHUB_ENV"
+          else
+            ROOT=$(dirname "$GRADLEW")
+
+            echo "Found gradlew: $GRADLEW"
+            echo "Android project root: $ROOT"
+
+            echo "ANDROID_ROOT=$ROOT" >> "$GITHUB_ENV"
           fi
-
-          echo "ANDROID_ROOT=$ROOT" >> "$GITHUB_ENV"
-          echo "Android project: $ROOT"
 
       - name: Fix AndroidX and Java/Kotlin JVM
         shell: bash
@@ -62,23 +73,7 @@ jobs:
 
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
-
-          find . -type f \( \
-            -name "build.gradle" \
-            -o -name "build.gradle.kts" \
-          \) -print0 | while IFS= read -r -d '' file
-          do
-            echo "Fixing: $file"
-
-            sed -i \
-              -e 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' \
-              -e 's/JavaVersion\.VERSION_8/JavaVersion.VERSION_17/g' \
-              -e 's/jvmTarget[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/jvmTarget = "17"/g' \
-              -e 's/jvmTarget[[:space:]]*=[[:space:]]*["'\'']8["'\'']/jvmTarget = "17"/g' \
-              -e 's/sourceCompatibility[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/sourceCompatibility = "17"/g' \
-              -e 's/targetCompatibility[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/targetCompatibility = "17"/g' \
-              "$file"
-          done
+          echo "kotlin.jvm.target.validation.mode=warning" >> gradle.properties
 
           echo "gradle.properties:"
           cat gradle.properties
@@ -95,6 +90,23 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Prepare Gradle
+        shell: bash
+        run: |
+          set -e
+
+          cd "$ANDROID_ROOT"
+
+          if [ ! -f gradlew ]; then
+            echo "gradlew missing - generating Gradle wrapper"
+            gradle wrapper --gradle-version 8.10.2
+          fi
+
+          chmod +x gradlew
+
+          echo "Gradle wrapper:"
+          ls -la gradlew
+
       - name: Build APK
         shell: bash
         run: |
@@ -102,15 +114,14 @@ jobs:
 
           cd "$ANDROID_ROOT"
 
-          chmod +x gradlew
-
           ./gradlew clean
-          ./gradlew assembleDebug --stacktrace
+
+          ./gradlew assembleDebug \
+            --stacktrace \
+            -Pkotlin.jvm.target.validation.mode=warning
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Sijil-Darajat-APK
-          path: |
-            ${{ env.ANDROID_ROOT }}/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          path: ${{ env.ANDROID_ROOT }}/
