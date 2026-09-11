@@ -22,6 +22,7 @@ jobs:
               sed -i 's/jvmTarget *= *["'\'']1.8["'\'']/jvmTarget = "17"/g' $(find . -name "*.gradle" -o -name "*.gradle.kts")
               echo "android.useAndroidX=true" >> gradle.properties
               echo "android.enableJetifier=true" >> gradle.properties
+              echo "kotlin.jvm.target.validation.mode=warning" >> gradle.propertiesies
               find . -maxdepth 2 -type f
 
       - name: Set up JDK
