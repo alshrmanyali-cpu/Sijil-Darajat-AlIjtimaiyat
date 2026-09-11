@@ -15,73 +15,79 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Unzip project
+        shell: bash
         run: |
+          set -e
+
           mkdir -p project
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" -print -quit)
+
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: ZIP file not found"
+            echo "ERROR: ZIP project not found"
             exit 1
           fi
 
-          echo "Using ZIP: $ZIP_FILE"
+          echo "Found ZIP: $ZIP_FILE"
+
           unzip -o "$ZIP_FILE" -d project
 
-      - name: Find Android project
-        run: |
-          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/project" \
-            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            -type f -print -quit)
+          echo "Extracted files:"
+          find project -maxdepth 4 -type f | head -100
 
-          if [ -z "$SETTINGS_FILE" ]; then
+      - name: Find Android project
+        shell: bash
+        run: |
+          set -e
+
+          ROOT=$(find project -type f \( \
+            -name "settings.gradle" \
+            -o -name "settings.gradle.kts" \
+          \) -print -quit | xargs -r dirname)
+
+          if [ -z "$ROOT" ]; then
             echo "ERROR: Android project not found"
-            find "$GITHUB_WORKSPACE/project" -maxdepth 5 -type f
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+          echo "ANDROID_ROOT=$ROOT" >> "$GITHUB_ENV"
+          echo "Android project: $ROOT"
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project: $PROJECT_DIR"
-
-      - name: Fix AndroidX and Java 17
+      - name: Fix AndroidX and Java/Kotlin JVM
+        shell: bash
         run: |
-          cd "$PROJECT_DIR"
+          set -e
 
-          touch gradle.properties
+          cd "$ANDROID_ROOT"
 
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
-          echo "kotlin.jvm.target.validation.mode=warning" >> gradle.properties
 
-          echo "===== BEFORE FIX ====="
-          grep -R "VERSION_1_8\|VERSION_8\|jvmTarget.*1.8\|jvmTarget.*8" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            . || true
+          find . -type f \( \
+            -name "build.gradle" \
+            -o -name "build.gradle.kts" \
+          \) -print0 | while IFS= read -r -d '' file
+          do
+            echo "Fixing: $file"
 
-          echo "===== APPLYING JAVA 17 ====="
+            sed -i \
+              -e 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' \
+              -e 's/JavaVersion\.VERSION_8/JavaVersion.VERSION_17/g' \
+              -e 's/jvmTarget[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/jvmTarget = "17"/g' \
+              -e 's/jvmTarget[[:space:]]*=[[:space:]]*["'\'']8["'\'']/jvmTarget = "17"/g' \
+              -e 's/sourceCompatibility[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/sourceCompatibility = "17"/g' \
+              -e 's/targetCompatibility[[:space:]]*=[[:space:]]*["'\'']1\.8["'\'']/targetCompatibility = "17"/g' \
+              "$file"
+          done
 
-          find . -type f \
-            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
-            -exec sed -i \
-            -e 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' \
-            -e 's/JavaVersion\.VERSION_8/JavaVersion.VERSION_17/g' \
-            -e 's/jvmTarget[[:space:]]*=[[:space:]]*"1\.8"/jvmTarget = "17"/g' \
-            -e 's/jvmTarget[[:space:]]*=[[:space:]]*"8"/jvmTarget = "17"/g' \
-            {} \;
+          echo "gradle.properties:"
+          cat gradle.properties
 
-          echo "===== AFTER FIX ====="
-          grep -R "VERSION_1_8\|VERSION_8\|jvmTarget.*1.8\|jvmTarget.*8" \
-            --include="*.gradle" \
-            --include="*.gradle.kts" \
-            . || true
-
-      - name: Set up JDK 17
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
       - name: Set up Android
         uses: android-actions/setup-android@v3
@@ -90,25 +96,21 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build APK
+        shell: bash
         run: |
-          cd "$PROJECT_DIR"
+          set -e
 
-          echo "===== GRADLE PROJECT ====="
-          pwd
-          ls -la
+          cd "$ANDROID_ROOT"
 
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew clean assembleDebug --stacktrace
-          else
-            gradle wrapper --gradle-version 8.10.2
-            chmod +x ./gradlew
-            ./gradlew clean assembleDebug --stacktrace
-          fi
+          chmod +x gradlew
+
+          ./gradlew clean
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Sijil-Darajat-APK
-          path: "${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk"
+          path: |
+            ${{ env.ANDROID_ROOT }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
