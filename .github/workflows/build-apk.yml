@@ -3,7 +3,8 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches:
+      - main
 
 jobs:
   build:
@@ -16,32 +17,67 @@ jobs:
       - name: Unzip project
         run: |
           mkdir -p project
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name '*.zip' -print -quit)
-          echo "ZIP file: $ZIP_FILE"
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found"
+            exit 1
+          fi
+
+          echo "Using ZIP: $ZIP_FILE"
           unzip -o "$ZIP_FILE" -d project
 
       - name: Find Android project
         run: |
-          PROJECT_DIR=$(dirname "$(find "$GITHUB_WORKSPACE/project" \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found at: $PROJECT_DIR"
+          SETTINGS_FILE=$(find "$GITHUB_WORKSPACE/project" \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -type f -print -quit)
 
-      - name: Fix Java and Kotlin JVM versions
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERROR: Android project not found"
+            find "$GITHUB_WORKSPACE/project" -maxdepth 5 -type f
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project: $PROJECT_DIR"
+
+      - name: Fix AndroidX and Java 17
         run: |
           cd "$PROJECT_DIR"
 
           touch gradle.properties
+
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
+          echo "kotlin.jvm.target.validation.mode=warning" >> gradle.properties
 
-          find . -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -print0 | \
-          xargs -0 sed -i \
-          -e 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' \
-          -e 's/JavaVersion.VERSION_8/JavaVersion.VERSION_17/g' \
-          -e 's/jvmTarget[[:space:]]*=[[:space:]]*"1.8"/jvmTarget = "17"/g' \
-          -e 's/jvmTarget[[:space:]]*=[[:space:]]*"8"/jvmTarget = "17"/g'
+          echo "===== BEFORE FIX ====="
+          grep -R "VERSION_1_8\|VERSION_8\|jvmTarget.*1.8\|jvmTarget.*8" \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            . || true
 
-      - name: Set up JDK
+          echo "===== APPLYING JAVA 17 ====="
+
+          find . -type f \
+            \( -name "*.gradle" -o -name "*.gradle.kts" \) \
+            -exec sed -i \
+            -e 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' \
+            -e 's/JavaVersion\.VERSION_8/JavaVersion.VERSION_17/g' \
+            -e 's/jvmTarget[[:space:]]*=[[:space:]]*"1\.8"/jvmTarget = "17"/g' \
+            -e 's/jvmTarget[[:space:]]*=[[:space:]]*"8"/jvmTarget = "17"/g' \
+            {} \;
+
+          echo "===== AFTER FIX ====="
+          grep -R "VERSION_1_8\|VERSION_8\|jvmTarget.*1.8\|jvmTarget.*8" \
+            --include="*.gradle" \
+            --include="*.gradle.kts" \
+            . || true
+
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -57,13 +93,17 @@ jobs:
         run: |
           cd "$PROJECT_DIR"
 
+          echo "===== GRADLE PROJECT ====="
+          pwd
+          ls -la
+
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew assembleDebug --stacktrace
+            ./gradlew clean assembleDebug --stacktrace
           else
             gradle wrapper --gradle-version 8.10.2
             chmod +x ./gradlew
-            ./gradlew assembleDebug --stacktrace
+            ./gradlew clean assembleDebug --stacktrace
           fi
 
       - name: Upload APK
