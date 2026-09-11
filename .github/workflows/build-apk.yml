@@ -17,8 +17,11 @@ jobs:
         run: |
           mkdir project
           unzip -o Sijil_Darajat_AlIjtimaiyat_GitHub_Ready_v1.zip -d project
-          cd project
-          find . -maxdepth 2 -type f
+              cd project
+              echo "android.useAndroidX=true" >> gradle.properties
+              echo "android.enableJetifier=true" >> gradle.properties
+              find . -maxdepth 2 -type f
+
 
       - name: Set up JDK
         uses: actions/setup-java@v4
