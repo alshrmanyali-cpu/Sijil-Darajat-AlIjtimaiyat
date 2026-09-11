@@ -18,10 +18,11 @@ jobs:
           mkdir project
           unzip -o Sijil_Darajat_AlIjtimaiyat_GitHub_Ready_v1.zip -d project
               cd project
+              sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' $(find . -name "*.gradle" -o -name "*.gradle.kts")
+              sed -i 's/jvmTarget *= *["'\'']1.8["'\'']/jvmTarget = "17"/g' $(find . -name "*.gradle" -o -name "*.gradle.kts")
               echo "android.useAndroidX=true" >> gradle.properties
               echo "android.enableJetifier=true" >> gradle.properties
               find . -maxdepth 2 -type f
-
 
       - name: Set up JDK
         uses: actions/setup-java@v4
