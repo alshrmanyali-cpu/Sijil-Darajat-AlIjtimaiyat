@@ -16,18 +16,21 @@ jobs:
       - name: Unzip project
         run: |
           mkdir -p project
-          unzip -o Sijil_Darajat_AllIjtimaiyat_GitHub_Ready_v1.zip -d project
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name '*.zip' -print -quit)
+          echo "ZIP file: $ZIP_FILE"
+          unzip -o "$ZIP_FILE" -d project
 
       - name: Find Android project
         run: |
           PROJECT_DIR=$(dirname "$(find "$GITHUB_WORKSPACE/project" \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)")
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Android project found at: $PROJECT_DIR"
 
       - name: Fix Java and Kotlin JVM versions
         run: |
           cd "$PROJECT_DIR"
 
+          touch gradle.properties
           echo "android.useAndroidX=true" >> gradle.properties
           echo "android.enableJetifier=true" >> gradle.properties
 
@@ -37,8 +40,6 @@ jobs:
           -e 's/JavaVersion.VERSION_8/JavaVersion.VERSION_17/g' \
           -e 's/jvmTarget[[:space:]]*=[[:space:]]*"1.8"/jvmTarget = "17"/g' \
           -e 's/jvmTarget[[:space:]]*=[[:space:]]*"8"/jvmTarget = "17"/g'
-
-          find . -type f \( -name "*.gradle" -o -name "*.gradle.kts" \) -maxdepth 5 -print
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -69,6 +70,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Sijil-Darajat-APK
-          path: |
-            ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          path: "${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
