@@ -20,8 +20,6 @@ jobs:
         run: |
           set -e
 
-          rm -rf project
-
           ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
@@ -31,239 +29,78 @@ jobs:
 
           echo "Using ZIP: $ZIP_FILE"
 
-          unzip -o "$ZIP_FILE" -d .
+          rm -rf project
+          mkdir -p project
 
-          if [ ! -f "project/settings.gradle.kts" ]; then
-            echo "Project not found"
-            find . -maxdepth 4 -type f -name "settings.gradle.kts"
+          unzip -q "$ZIP_FILE" -d project
+
+          echo "Searching for Gradle project..."
+
+          ROOT=$(find project -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit | xargs dirname)
+
+          if [ -z "$ROOT" ]; then
+            echo "Gradle project not found"
+            find project -maxdepth 5 -type f | head -100
             exit 1
           fi
 
-          echo "Android project found"
+          echo "ANDROID_ROOT=$ROOT" >> "$GITHUB_ENV"
 
-      - name: Fix project
+          echo "Android project:"
+          echo "$ROOT"
+
+          ls -la "$ROOT"
+
+      - name: Fix AndroidX and Gradle
         shell: bash
         run: |
           set -e
 
-          cd project
+          cd "$ANDROID_ROOT"
 
-          echo "android.useAndroidX=true" > gradle.properties
-          echo "android.enableJetifier=true" >> gradle.properties
-          echo "kotlin.jvm.target.validation.mode=warning" >> gradle.properties
+          touch gradle.properties
 
-          echo "Fixing Gradle version..."
+          grep -qxF 'android.useAndroidX=true' gradle.properties || \
+            echo 'android.useAndroidX=true' >> gradle.properties
 
-          mkdir -p gradle/wrapper
+          grep -qxF 'android.enableJetifier=true' gradle.properties || \
+            echo 'android.enableJetifier=true' >> gradle.properties
 
-          cat > gradle/wrapper/gradle-wrapper.properties <<'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
-          networkTimeout=10000
-          validateDistributionUrl=true
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
+          grep -qxF 'kotlin.jvm.target.validation.mode=warning' gradle.properties || \
+            echo 'kotlin.jvm.target.validation.mode=warning' >> gradle.properties
 
-      - name: Fix MainActivity
+          if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
+            sed -i 's#gradle-[0-9.]*-all.zip#gradle-8.9-all.zip#g' \
+              gradle/wrapper/gradle-wrapper.properties
+          fi
+
+          echo "gradle.properties:"
+          cat gradle.properties
+
+      - name: Fix Java and Kotlin JVM
         shell: bash
         run: |
           set -e
 
-          MAIN_FILE="project/app/src/main/java/com/example/sijil/MainActivity.kt"
+          cd "$ANDROID_ROOT"
 
-          mkdir -p "$(dirname "$MAIN_FILE")"
+          if [ -f "app/build.gradle.kts" ]; then
 
-          cat > "$MAIN_FILE" <<'EOF'
-          package com.example.sijil
+            cat >> app/build.gradle.kts <<'EOF'
 
-          import android.os.Bundle
-          import androidx.activity.ComponentActivity
-          import androidx.activity.compose.setContent
-          import androidx.compose.foundation.layout.Arrangement
-          import androidx.compose.foundation.layout.Column
-          import androidx.compose.foundation.layout.Row
-          import androidx.compose.foundation.layout.Spacer
-          import androidx.compose.foundation.layout.fillMaxSize
-          import androidx.compose.foundation.layout.fillMaxWidth
-          import androidx.compose.foundation.layout.height
-          import androidx.compose.foundation.layout.padding
-          import androidx.compose.foundation.lazy.LazyColumn
-          import androidx.compose.foundation.lazy.items
-          import androidx.compose.material3.Button
-          import androidx.compose.material3.Card
-          import androidx.compose.material3.MaterialTheme
-          import androidx.compose.material3.OutlinedTextField
-          import androidx.compose.material3.Surface
-          import androidx.compose.material3.Text
-          import androidx.compose.runtime.getValue
-          import androidx.compose.runtime.mutableStateOf
-          import androidx.compose.runtime.remember
-          import androidx.compose.runtime.setValue
-          import androidx.compose.ui.Alignment
-          import androidx.compose.ui.Modifier
-          import androidx.compose.ui.text.style.TextAlign
-          import androidx.compose.ui.unit.dp
+android {
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
 
-          data class Student(
-              val name: String,
-              val arabic: String,
-              val math: String,
-              val science: String
-          )
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+EOF
 
-          class MainActivity : ComponentActivity() {
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-
-                  setContent {
-                      MaterialTheme {
-                          Surface(
-                              modifier = Modifier.fillMaxSize()
-                          ) {
-                              GradeScreen()
-                          }
-                      }
-                  }
-              }
-          }
-
-          @androidx.compose.runtime.Composable
-          fun GradeScreen() {
-
-              var studentName by remember { mutableStateOf("") }
-              var arabic by remember { mutableStateOf("") }
-              var math by remember { mutableStateOf("") }
-              var science by remember { mutableStateOf("") }
-
-              var students by remember {
-                  mutableStateOf(listOf<Student>())
-              }
-
-              Column(
-                  modifier = Modifier
-                      .fillMaxSize()
-                      .padding(16.dp),
-                  horizontalAlignment = Alignment.CenterHorizontally
-              ) {
-
-                  Text(
-                      text = "سجل درجات الاجتماعيات",
-                      style = MaterialTheme.typography.headlineSmall,
-                      textAlign = TextAlign.Center
-                  )
-
-                  Spacer(modifier = Modifier.height(16.dp))
-
-                  OutlinedTextField(
-                      value = studentName,
-                      onValueChange = { studentName = it },
-                      label = { Text("اسم الطالب") },
-                      modifier = Modifier.fillMaxWidth()
-                  )
-
-                  Spacer(modifier = Modifier.height(8.dp))
-
-                  Row(
-                      modifier = Modifier.fillMaxWidth(),
-                      horizontalArrangement = Arrangement.spacedBy(8.dp)
-                  ) {
-
-                      OutlinedTextField(
-                          value = arabic,
-                          onValueChange = { arabic = it },
-                          label = { Text("العربي") },
-                          modifier = Modifier.weight(1f)
-                      )
-
-                      OutlinedTextField(
-                          value = math,
-                          onValueChange = { math = it },
-                          label = { Text("الرياضيات") },
-                          modifier = Modifier.weight(1f)
-                      )
-                  }
-
-                  Spacer(modifier = Modifier.height(8.dp))
-
-                  OutlinedTextField(
-                      value = science,
-                      onValueChange = { science = it },
-                      label = { Text("الاجتماعيات") },
-                      modifier = Modifier.fillMaxWidth()
-                  )
-
-                  Spacer(modifier = Modifier.height(12.dp))
-
-                  Button(
-                      onClick = {
-                          if (studentName.isNotBlank()) {
-                              students = students + Student(
-                                  studentName,
-                                  arabic,
-                                  math,
-                                  science
-                              )
-
-                              studentName = ""
-                              arabic = ""
-                              math = ""
-                              science = ""
-                          }
-                      },
-                      modifier = Modifier.fillMaxWidth()
-                  ) {
-                      Text("إضافة الطالب")
-                  }
-
-                  Spacer(modifier = Modifier.height(16.dp))
-
-                  LazyColumn(
-                      modifier = Modifier.fillMaxWidth()
-                  ) {
-
-                      items(students) { student ->
-
-                          Card(
-                              modifier = Modifier
-                                  .fillMaxWidth()
-                                  .padding(vertical = 4.dp)
-                          ) {
-
-                              Column(
-                                  modifier = Modifier.padding(12.dp)
-                              ) {
-
-                                  Text(
-                                      text = student.name,
-                                      style = MaterialTheme.typography.titleMedium
-                                  )
-
-                                  Spacer(
-                                      modifier = Modifier.height(6.dp)
-                                  )
-
-                                  Text(
-                                      text = "العربي: ${student.arabic}"
-                                  )
-
-                                  Text(
-                                      text = "الرياضيات: ${student.math}"
-                                  )
-
-                                  Text(
-                                      text = "الاجتماعيات: ${student.science}"
-                                  )
-                              }
-                          }
-                      }
-                  }
-              }
-          }
-          EOF
-
-          echo "MainActivity fixed"
+          fi
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -282,10 +119,11 @@ jobs:
         run: |
           set -e
 
-          cd project
+          cd "$ANDROID_ROOT"
 
           if [ ! -f "gradlew" ]; then
             echo "Creating Gradle wrapper..."
+
             gradle wrapper --gradle-version 8.9
           fi
 
@@ -299,7 +137,7 @@ jobs:
         run: |
           set -e
 
-          cd project
+          cd "$ANDROID_ROOT"
 
           chmod +x gradlew
 
@@ -311,5 +149,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Sijil-Darajat-APK
-          path: project/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            ${{ env.ANDROID_ROOT }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Post Set up Gradle
+        run: echo "Build finished"
