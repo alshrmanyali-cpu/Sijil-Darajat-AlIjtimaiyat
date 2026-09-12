@@ -33,39 +33,28 @@ jobs:
 
           unzip -o "$ZIP_FILE" -d project
 
-          GRADLEW=$(find project -type f -name "gradlew" | head -n 1)
-
-          if [ -z "$GRADLEW" ]; then
-            echo "gradlew not found"
-            find project -maxdepth 6 -type f | head -100
+          if [ ! -f "project/settings.gradle.kts" ]; then
+            echo "Android project not found"
+            find project -maxdepth 4 -type f
             exit 1
           fi
 
-          ANDROID_ROOT=$(dirname "$GRADLEW")
-
-          echo "ANDROID_ROOT=$ANDROID_ROOT" >> "$GITHUB_ENV"
-
-          echo "Project root:"
-          echo "$ANDROID_ROOT"
+          echo "Android project found successfully"
 
       - name: Fix AndroidX
         shell: bash
         run: |
           set -e
 
-          cd "$ANDROID_ROOT"
+          cd project
 
           touch gradle.properties
 
-          if ! grep -q "^android.useAndroidX=true" gradle.properties; then
+          grep -q "^android.useAndroidX=true" gradle.properties || \
             echo "android.useAndroidX=true" >> gradle.properties
-          fi
 
-          if ! grep -q "^android.enableJetifier=true" gradle.properties; then
+          grep -q "^android.enableJetifier=true" gradle.properties || \
             echo "android.enableJetifier=true" >> gradle.properties
-          fi
-
-          echo "AndroidX fixed"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -78,33 +67,31 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
 
       - name: Prepare Gradle
         shell: bash
         run: |
           set -e
 
-          cd "$ANDROID_ROOT"
+          cd project
 
-          chmod +x gradlew
-
-          ./gradlew --version
+          gradle --version
 
       - name: Build APK
         shell: bash
         run: |
           set -e
 
-          cd "$ANDROID_ROOT"
+          cd project
 
-          chmod +x gradlew
-
-          ./gradlew clean
-          ./gradlew assembleDebug --stacktrace
+          gradle clean
+          gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Sijil-Darajat-APK
-          path: ${{ env.ANDROID_ROOT }}/app/build/outputs/apk/debug/*.apk
+          path: project/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
