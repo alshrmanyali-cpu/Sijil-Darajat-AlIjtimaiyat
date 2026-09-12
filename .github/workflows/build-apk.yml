@@ -113,7 +113,7 @@ jobs:
 
           if [ ! -f "gradlew" ]; then
             echo "gradlew not found. Creating Gradle wrapper..."
-            gradle wrapper --gradle-version 8.7
+            gradle wrapper --gradle-version 8.9
           fi
 
           chmod +x gradlew
