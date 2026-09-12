@@ -32,17 +32,21 @@ jobs:
 
           unzip -o "$ZIP_FILE" -d project
 
-          echo "Searching for Gradle project..."
+          echo "Searching for Android project..."
 
-          GRADLEW=$(find "$GITHUB_WORKSPACE/project" -type f -name "gradlew" | head -n 1)
+          SETTINGS=$(find "$GITHUB_WORKSPACE/project" -type f -name "settings.gradle.kts" | head -n 1)
 
-          if [ -z "$GRADLEW" ]; then
-            echo "gradlew not found."
-            find "$GITHUB_WORKSPACE/project" -maxdepth 5 -type f | head -n 100
+          if [ -z "$SETTINGS" ]; then
+            SETTINGS=$(find "$GITHUB_WORKSPACE/project" -type f -name "settings.gradle" | head -n 1)
+          fi
+
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle not found"
+            find "$GITHUB_WORKSPACE/project" -maxdepth 6 -type f
             exit 1
           fi
 
-          ANDROID_ROOT=$(dirname "$GRADLEW")
+          ANDROID_ROOT=$(dirname "$SETTINGS")
 
           echo "ANDROID_ROOT=$ANDROID_ROOT" >> "$GITHUB_ENV"
 
@@ -84,7 +88,7 @@ jobs:
           if [ -f "$MAIN_FILE" ]; then
             nl -ba "$MAIN_FILE" | sed -n '1,120p'
           else
-            echo "MainActivity.kt not found:"
+            echo "MainActivity.kt not found"
             find "$ANDROID_ROOT/app/src/main/java" -type f
           fi
 
