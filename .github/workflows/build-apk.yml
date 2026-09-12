@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Download project
         uses: actions/checkout@v4
 
@@ -32,26 +31,24 @@ jobs:
           rm -rf project
           mkdir -p project
 
-          unzip -q "$ZIP_FILE" -d project
+          unzip -o "$ZIP_FILE" -d project
 
-          echo "Searching for Gradle project..."
+          GRADLEW=$(find project -type f -name "gradlew" | head -n 1)
 
-          ROOT=$(find project -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit | xargs dirname)
-
-          if [ -z "$ROOT" ]; then
-            echo "Gradle project not found"
-            find project -maxdepth 5 -type f | head -100
+          if [ -z "$GRADLEW" ]; then
+            echo "gradlew not found"
+            find project -maxdepth 6 -type f | head -100
             exit 1
           fi
 
-          echo "ANDROID_ROOT=$ROOT" >> "$GITHUB_ENV"
+          ANDROID_ROOT=$(dirname "$GRADLEW")
 
-          echo "Android project:"
-          echo "$ROOT"
+          echo "ANDROID_ROOT=$ANDROID_ROOT" >> "$GITHUB_ENV"
 
-          ls -la "$ROOT"
+          echo "Project root:"
+          echo "$ANDROID_ROOT"
 
-      - name: Fix AndroidX and Gradle
+      - name: Fix AndroidX
         shell: bash
         run: |
           set -e
@@ -60,53 +57,21 @@ jobs:
 
           touch gradle.properties
 
-          grep -qxF 'android.useAndroidX=true' gradle.properties || \
-            echo 'android.useAndroidX=true' >> gradle.properties
-
-          grep -qxF 'android.enableJetifier=true' gradle.properties || \
-            echo 'android.enableJetifier=true' >> gradle.properties
-
-          grep -qxF 'kotlin.jvm.target.validation.mode=warning' gradle.properties || \
-            echo 'kotlin.jvm.target.validation.mode=warning' >> gradle.properties
-
-          if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
-            sed -i 's#gradle-[0-9.]*-all.zip#gradle-8.9-all.zip#g' \
-              gradle/wrapper/gradle-wrapper.properties
+          if ! grep -q "^android.useAndroidX=true" gradle.properties; then
+            echo "android.useAndroidX=true" >> gradle.properties
           fi
 
-          echo "gradle.properties:"
-          cat gradle.properties
-
-      - name: Fix Java and Kotlin JVM
-        shell: bash
-        run: |
-          set -e
-
-          cd "$ANDROID_ROOT"
-
-          if [ -f "app/build.gradle.kts" ]; then
-
-            cat >> app/build.gradle.kts <<'EOF'
-
-android {
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-}
-EOF
-
+          if ! grep -q "^android.enableJetifier=true" gradle.properties; then
+            echo "android.enableJetifier=true" >> gradle.properties
           fi
+
+          echo "AndroidX fixed"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Android
         uses: android-actions/setup-android@v3
@@ -121,15 +86,8 @@ EOF
 
           cd "$ANDROID_ROOT"
 
-          if [ ! -f "gradlew" ]; then
-            echo "Creating Gradle wrapper..."
-
-            gradle wrapper --gradle-version 8.9
-          fi
-
           chmod +x gradlew
 
-          echo "Gradle version:"
           ./gradlew --version
 
       - name: Build APK
@@ -142,16 +100,11 @@ EOF
           chmod +x gradlew
 
           ./gradlew clean
-
           ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Sijil-Darajat-APK
-          path: |
-            ${{ env.ANDROID_ROOT }}/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.ANDROID_ROOT }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-
-      - name: Post Set up Gradle
-        run: echo "Build finished"
