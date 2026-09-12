@@ -28,11 +28,7 @@ jobs:
             exit 1
           fi
 
-          echo "ZIP file: $ZIP_FILE"
-
           unzip -o "$ZIP_FILE" -d project
-
-          echo "Searching for Android project..."
 
           SETTINGS=$(find "$GITHUB_WORKSPACE/project" -type f -name "settings.gradle.kts" | head -n 1)
 
@@ -41,8 +37,7 @@ jobs:
           fi
 
           if [ -z "$SETTINGS" ]; then
-            echo "ERROR: settings.gradle not found"
-            find "$GITHUB_WORKSPACE/project" -maxdepth 6 -type f
+            echo "ERROR: Android project not found"
             exit 1
           fi
 
@@ -50,7 +45,7 @@ jobs:
 
           echo "ANDROID_ROOT=$ANDROID_ROOT" >> "$GITHUB_ENV"
 
-          echo "Android project found:"
+          echo "Android project:"
           echo "$ANDROID_ROOT"
 
       - name: Fix AndroidX and Java/Kotlin JVM
@@ -71,26 +66,29 @@ jobs:
           grep -qxF 'kotlin.jvm.target.validation.mode=warning' gradle.properties || \
             echo 'kotlin.jvm.target.validation.mode=warning' >> gradle.properties
 
-          echo "gradle.properties:"
-          cat gradle.properties
-
       - name: Show MainActivity source
         shell: bash
         run: |
           set -e
 
-          MAIN_FILE="$ANDROID_ROOT/app/src/main/java/com/example/sijil1/MainActivity.kt"
+          MAIN_FILE=$(find "$ANDROID_ROOT/app/src/main/java" -type f -name "MainActivity.kt" | head -n 1)
 
           echo "========================================"
-          echo "MainActivity.kt"
+          echo "MainActivity location:"
+          echo "$MAIN_FILE"
           echo "========================================"
 
-          if [ -f "$MAIN_FILE" ]; then
-            nl -ba "$MAIN_FILE" | sed -n '1,120p'
-          else
-            echo "MainActivity.kt not found"
+          if [ -z "$MAIN_FILE" ]; then
+            echo "ERROR: MainActivity.kt not found"
             find "$ANDROID_ROOT/app/src/main/java" -type f
+            exit 1
           fi
+
+          echo "========================================"
+          echo "MainActivity.kt source:"
+          echo "========================================"
+
+          nl -ba "$MAIN_FILE" | sed -n '1,120p'
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -118,7 +116,6 @@ jobs:
 
           chmod +x gradlew
 
-          echo "Gradle version:"
           ./gradlew --version
 
       - name: Build APK
