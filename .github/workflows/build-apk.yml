@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Download project
         uses: actions/checkout@v4
 
@@ -19,6 +20,8 @@ jobs:
         run: |
           set -e
 
+          rm -rf project
+
           ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
@@ -26,16 +29,10 @@ jobs:
             exit 1
           fi
 
-          rm -rf project
+          echo "Using ZIP: $ZIP_FILE"
+
           mkdir -p project
-
           unzip -o "$ZIP_FILE" -d project
-
-          if [ -f "project/project/settings.gradle.kts" ]; then
-            mv project/project/* project/
-            mv project/project/.[!.]* project/ 2>/dev/null || true
-            rm -rf project/project
-          fi
 
           if [ ! -f "project/settings.gradle.kts" ]; then
             echo "settings.gradle.kts not found"
@@ -43,99 +40,308 @@ jobs:
             exit 1
           fi
 
-          if [ ! -f "project/app/build.gradle.kts" ]; then
-            echo "app/build.gradle.kts not found"
-            exit 1
+          echo "Project found successfully"
+
+      - name: Prepare Android project
+        shell: bash
+        run: |
+          set -e
+
+          cd project
+
+          echo "android.useAndroidX=true" > gradle.properties
+          echo "android.enableJetifier=true" >> gradle.properties
+
+          if [ -f "app/build.gradle.kts" ]; then
+            sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' app/build.gradle.kts
           fi
 
-          echo "Project ready"
+          if [ -f "app/build.gradle" ]; then
+            sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' app/build.gradle
+          fi
 
-      - name: Fix Gradle version
+          echo "kotlin.jvm.target.validation.mode=warning" >> gradle.properties
+
+      - name: Fix MainActivity
         shell: bash
         run: |
           set -e
 
-          cd project
+          cat > project/app/src/main/java/com/example/sijil/MainActivity.kt <<'EOF'
+          package com.example.sijil
 
-          mkdir -p gradle/wrapper
+          import android.app.Activity
+          import android.os.Bundle
+          import android.text.InputType
+          import android.view.Gravity
+          import android.widget.Button
+          import android.widget.EditText
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+          import android.widget.Toast
+          import kotlin.math.roundToInt
 
-          cat > gradle/wrapper/gradle-wrapper.properties <<'EOF'
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
+          class MainActivity : Activity() {
 
-          echo "Gradle 8.9 configured"
+              private lateinit var nameInput: EditText
+              private lateinit var score1Input: EditText
+              private lateinit var score2Input: EditText
+              private lateinit var score3Input: EditText
+              private lateinit var resultText: TextView
 
-      - name: Fix AndroidX and Java/Kotlin JVM
-        shell: bash
-        run: |
-          set -e
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
 
-          cd project
+                  val scrollView = ScrollView(this)
 
-          cat > gradle.properties <<'EOF'
-          android.useAndroidX=true
-          android.enableJetifier=true
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          EOF
+                  val mainLayout = LinearLayout(this)
+                  mainLayout.orientation = LinearLayout.VERTICAL
+                  mainLayout.gravity = Gravity.CENTER_HORIZONTAL
+                  mainLayout.setPadding(
+                      dp(20),
+                      dp(20),
+                      dp(20),
+                      dp(20)
+                  )
 
-          python3 - <<'PY'
-          from pathlib import Path
+                  val title = TextView(this)
+                  title.text = "سجل درجات الاجتماعيات"
+                  title.textSize = 26f
+                  title.gravity = Gravity.CENTER
+                  title.setPadding(0, 0, 0, dp(25))
 
-          p = Path("app/build.gradle.kts")
-          text = p.read_text()
+                  mainLayout.addView(
+                      title,
+                      LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      )
+                  )
 
-          block = r'''
-          
-          android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
+                  nameInput = createInput(
+                      "اسم الطالب",
+                      InputType.TYPE_CLASS_TEXT
+                  )
+                  mainLayout.addView(nameInput)
+
+                  score1Input = createInput(
+                      "درجة الشهر الأول",
+                      InputType.TYPE_CLASS_NUMBER or
+                          InputType.TYPE_NUMBER_FLAG_DECIMAL
+                  )
+                  mainLayout.addView(score1Input)
+
+                  score2Input = createInput(
+                      "درجة الشهر الثاني",
+                      InputType.TYPE_CLASS_NUMBER or
+                          InputType.TYPE_NUMBER_FLAG_DECIMAL
+                  )
+                  mainLayout.addView(score2Input)
+
+                  score3Input = createInput(
+                      "درجة الامتحان",
+                      InputType.TYPE_CLASS_NUMBER or
+                          InputType.TYPE_NUMBER_FLAG_DECIMAL
+                  )
+                  mainLayout.addView(score3Input)
+
+                  val calculateButton = Button(this)
+                  calculateButton.text = "حساب النتيجة"
+                  calculateButton.textSize = 18f
+
+                  val buttonParams = LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT,
+                      LinearLayout.LayoutParams.WRAP_CONTENT
+                  )
+
+                  buttonParams.setMargins(
+                      0,
+                      dp(15),
+                      0,
+                      dp(10)
+                  )
+
+                  mainLayout.addView(
+                      calculateButton,
+                      buttonParams
+                  )
+
+                  resultText = TextView(this)
+                  resultText.text = "النتيجة ستظهر هنا"
+                  resultText.textSize = 20f
+                  resultText.gravity = Gravity.CENTER
+                  resultText.setPadding(
+                      dp(10),
+                      dp(20),
+                      dp(10),
+                      dp(20)
+                  )
+
+                  mainLayout.addView(
+                      resultText,
+                      LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      )
+                  )
+
+                  val clearButton = Button(this)
+                  clearButton.text = "مسح البيانات"
+                  clearButton.textSize = 17f
+
+                  mainLayout.addView(
+                      clearButton,
+                      LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      )
+                  )
+
+                  calculateButton.setOnClickListener {
+                      calculateResult()
+                  }
+
+                  clearButton.setOnClickListener {
+                      nameInput.text.clear()
+                      score1Input.text.clear()
+                      score2Input.text.clear()
+                      score3Input.text.clear()
+                      resultText.text = "النتيجة ستظهر هنا"
+                  }
+
+                  scrollView.addView(mainLayout)
+                  setContentView(scrollView)
               }
 
-              kotlinOptions {
-                  jvmTarget = "17"
+              private fun createInput(
+                  hintText: String,
+                  inputTypeValue: Int
+              ): EditText {
+
+                  val input = EditText(this)
+
+                  input.hint = hintText
+                  input.textSize = 18f
+                  input.inputType = inputTypeValue
+                  input.gravity = Gravity.RIGHT
+                  input.setPadding(
+                      dp(12),
+                      dp(12),
+                      dp(12),
+                      dp(12)
+                  )
+
+                  val params = LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT,
+                      LinearLayout.LayoutParams.WRAP_CONTENT
+                  )
+
+                  params.setMargins(
+                      0,
+                      dp(5),
+                      0,
+                      dp(5)
+                  )
+
+                  input.layoutParams = params
+
+                  return input
+              }
+
+              private fun calculateResult() {
+
+                  val studentName =
+                      nameInput.text.toString().trim()
+
+                  if (studentName.isEmpty()) {
+                      Toast.makeText(
+                          this,
+                          "اكتب اسم الطالب أولاً",
+                          Toast.LENGTH_SHORT
+                      ).show()
+                      return
+                  }
+
+                  val score1 =
+                      score1Input.text.toString().toDoubleOrNull()
+
+                  val score2 =
+                      score2Input.text.toString().toDoubleOrNull()
+
+                  val score3 =
+                      score3Input.text.toString().toDoubleOrNull()
+
+                  if (
+                      score1 == null ||
+                      score2 == null ||
+                      score3 == null
+                  ) {
+                      Toast.makeText(
+                          this,
+                          "أدخل جميع الدرجات",
+                          Toast.LENGTH_SHORT
+                      ).show()
+                      return
+                  }
+
+                  if (
+                      score1 !in 0.0..100.0 ||
+                      score2 !in 0.0..100.0 ||
+                      score3 !in 0.0..100.0
+                  ) {
+                      Toast.makeText(
+                          this,
+                          "الدرجات يجب أن تكون بين 0 و100",
+                          Toast.LENGTH_SHORT
+                      ).show()
+                      return
+                  }
+
+                  val average =
+                      (score1 + score2 + score3) / 3.0
+
+                  val status =
+                      if (average >= 50.0) {
+                          "ناجح"
+                      } else {
+                          "راسب"
+                      }
+
+                  val roundedAverage =
+                      (average * 100).roundToInt() / 100.0
+
+                  resultText.text =
+                      "الطالب: $studentName\n\n" +
+                      "الشهر الأول: $score1\n" +
+                      "الشهر الثاني: $score2\n" +
+                      "الامتحان: $score3\n\n" +
+                      "المعدل: $roundedAverage\n\n" +
+                      "الحالة: $status"
+              }
+
+              private fun dp(value: Int): Int {
+                  return (
+                      value *
+                          resources.displayMetrics.density
+                      ).roundToInt()
               }
           }
-          '''
-
-          if "sourceCompatibility = JavaVersion.VERSION_17" not in text:
-              text += block
-
-          p.write_text(text)
-          PY
-
-          echo "AndroidX and JVM 17 configured"
+          EOF
 
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Android
         uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Prepare Gradle
-        shell: bash
-        run: |
-          set -e
-
-          cd project
-
-          if [ ! -f gradlew ]; then
-            gradle wrapper --gradle-version 8.9
-          fi
-
-          chmod +x gradlew
-
-          echo "Gradle wrapper ready"
+        with:
+          gradle-version: "8.9"
 
       - name: Build APK
         shell: bash
@@ -144,8 +350,9 @@ jobs:
 
           cd project
 
-          ./gradlew clean
-          ./gradlew assembleDebug --stacktrace
+          gradle clean
+
+          gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
