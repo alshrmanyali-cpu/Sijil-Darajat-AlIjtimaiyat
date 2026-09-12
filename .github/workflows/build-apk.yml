@@ -26,51 +26,101 @@ jobs:
             exit 1
           fi
 
-          echo "Using ZIP: $ZIP_FILE"
-
           rm -rf project
           mkdir -p project
 
           unzip -o "$ZIP_FILE" -d project
 
+          if [ -f "project/project/settings.gradle.kts" ]; then
+            mv project/project/* project/
+            mv project/project/.[!.]* project/ 2>/dev/null || true
+            rm -rf project/project
+          fi
+
           if [ ! -f "project/settings.gradle.kts" ]; then
-            echo "Android project not found"
-            find project -maxdepth 6 -type f
+            echo "settings.gradle.kts not found"
+            find project -maxdepth 3 -type f | sort
             exit 1
           fi
 
-          echo "Android project found successfully"
+          if [ ! -f "project/app/build.gradle.kts" ]; then
+            echo "app/build.gradle.kts not found"
+            exit 1
+          fi
 
-      - name: Fix AndroidX
+          echo "Project ready"
+
+      - name: Fix Gradle version
         shell: bash
         run: |
           set -e
 
           cd project
 
-          touch gradle.properties
+          mkdir -p gradle/wrapper
 
-          grep -q "^android.useAndroidX=true" gradle.properties || \
-            echo "android.useAndroidX=true" >> gradle.properties
+          cat > gradle/wrapper/gradle-wrapper.properties <<'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
 
-          grep -q "^android.enableJetifier=true" gradle.properties || \
-            echo "android.enableJetifier=true" >> gradle.properties
+          echo "Gradle 8.9 configured"
 
-          echo "AndroidX fixed"
+      - name: Fix AndroidX and Java/Kotlin JVM
+        shell: bash
+        run: |
+          set -e
+
+          cd project
+
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("app/build.gradle.kts")
+          text = p.read_text()
+
+          block = r'''
+          
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          '''
+
+          if "sourceCompatibility = JavaVersion.VERSION_17" not in text:
+              text += block
+
+          p.write_text(text)
+          PY
+
+          echo "AndroidX and JVM 17 configured"
 
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
       - name: Set up Android
         uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
 
       - name: Prepare Gradle
         shell: bash
@@ -79,7 +129,13 @@ jobs:
 
           cd project
 
-          gradle --version
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.9
+          fi
+
+          chmod +x gradlew
+
+          echo "Gradle wrapper ready"
 
       - name: Build APK
         shell: bash
@@ -88,12 +144,12 @@ jobs:
 
           cd project
 
-          gradle clean
-          gradle assembleDebug --stacktrace
+          ./gradlew clean
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Sijil-Darajat-APK
-          path: project/app/build/outputs/apk/debug/*.apk
+          path: project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
