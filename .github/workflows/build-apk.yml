@@ -35,7 +35,7 @@ jobs:
 
           if [ ! -f "project/settings.gradle.kts" ]; then
             echo "Android project not found"
-            find project -maxdepth 4 -type f
+            find project -maxdepth 6 -type f
             exit 1
           fi
 
@@ -56,6 +56,8 @@ jobs:
           grep -q "^android.enableJetifier=true" gradle.properties || \
             echo "android.enableJetifier=true" >> gradle.properties
 
+          echo "AndroidX fixed"
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -68,7 +70,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.7"
+          gradle-version: "8.9"
 
       - name: Prepare Gradle
         shell: bash
